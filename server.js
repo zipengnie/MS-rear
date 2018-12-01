@@ -3,13 +3,21 @@ var express = require("express");
 var app = express();
 // 异步流程控制
 var async = require("async");
+// 文件模块
+var fs = require("fs");
+// 路径模块
+var path = require("path");
+// 上传文件模块
+var multer = require("multer");
+// dest是设置文件存放的临时目录
+var upload = multer({ dest: 'c:/uploads' })
 // mongodb数据库
 var MongoClient = require("mongodb").MongoClient;
 var url = "mongodb://127.0.0.1:27017";
 //获取POST请求体body中的数据（查询串）
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
-
+app.use(express.static(path.join(__dirname, 'public')));
 // 注册用户和登录时都要验证该用户之前是否存在数据库
 app.post("/api/userCheck", function (req, res) {
     //设置响应头来处理跨域问题
@@ -198,65 +206,77 @@ app.get("/api/userInfo.html", function (req, res) {
     var page = parseInt(req.query.page) || 1;//初始化默认页码1
     var pageSize = parseInt(req.query.pageSize) || 2;//初始化默认每页显示5条数据
     var totalSize = 0;//数据总条数
-    var totalPage = 0;//总页数
+    var totalPage = 1;//总页数
     var result = {};
+    if (req.query.totalSize) {
+        // 当前页码
+        result.page = page;
+        // 每页显示数据条数
+        result.pageSize = pageSize;
+        //总条数  
+        result.totalSize = parseInt(req.query.totalSize);
+        // 总页数
+        result.totalPage = Math.ceil(result.totalSize / result.pageSize);
+        res.json(result);
+        return;
+    } else {
+        // 连接服务器和数据库
+        MongoClient.connect(url, { useNewUrlParser: true }, function (error, client) {
+            if (error) {
+                result.code = -1;//非0表示错误
+                result.message = "连接服务器失败";
+                res.json(result);
+                return;
+            }
+            //连接数据库
+            var db = client.db("MS");
 
-    // 连接服务器和数据库
-    MongoClient.connect(url, { useNewUrlParser: true }, function (error, client) {
-        if (error) {
-            result.code = -1;//非0表示错误
-            result.message = "连接服务器失败";
-            res.json(result);
-            return;
-        }
-        //连接数据库
-        var db = client.db("MS");
-
-        async.series([
-            function (cb) {
-                //查询MongoDB数据
-                db.collection("user").find().count(function (error, num) {
-                    if (error) {
-                        result.code = -1;//非0表示错误
-                        result.message = "查询失败";
-                        cb(result.code, result);
-                    } else {
-                        result.code = 0;//非0表示错误
-                        result.message = "查询成功";
-                        result.totalSize = num;//取数据库查询总数据条数
-                        cb(null, result);
+            async.series([
+                function (cb) {
+                    //查询MongoDB数据
+                    db.collection("user").find().count(function (error, num) {
+                        if (error) {
+                            result.code = -1;//非0表示错误
+                            result.message = "查询失败";
+                            cb(result.code, result);
+                        } else {
+                            result.code = 0;//非0表示错误
+                            result.message = "查询成功";
+                            result.totalSize = num;//取数据库查询总数据条数
+                            cb(null, result);
+                        }
+                    })
+                },
+                //获取当前页码的几条数据
+                function (cb) {
+                    //查询MongoDB数据
+                    db.collection("user").find().limit(pageSize).skip(page * pageSize - pageSize).toArray(function (error, docs) {
+                        if (error) {
+                            result.code = -1;//非0表示错误
+                            result.message = "查询数据失败";
+                            cb(result.code, result);
+                        } else {
+                            result.code = 0;//非0表示错误
+                            result.message = "查询数据成功";
+                            result.data = docs //当前页面数据
+                            cb(null, result);
+                        }
+                    })
+                }], function (error, rel) {//注意：data是一个数组，前面没有传参[undefined,docs]
+                    if (error == null) {
+                        // 当前页码
+                        result.page = page;
+                        // 每页显示数据条数
+                        result.pageSize = pageSize;
+                        // 总页数
+                        result.totalPage = Math.ceil(result.totalSize / result.pageSize);
+                        res.json(result);
                     }
+                    //关闭连接
+                    client.close();
                 })
-            },
-            //获取当前页码的几条数据
-            function (cb) {
-                //查询MongoDB数据
-                db.collection("user").find().limit(pageSize).skip(page * pageSize - pageSize).toArray(function (error, docs) {
-                    if (error) {
-                        result.code = -1;//非0表示错误
-                        result.message = "查询数据失败";
-                        cb(result.code, result);
-                    } else {
-                        result.code = 0;//非0表示错误
-                        result.message = "查询数据成功";
-                        result.data = docs //当前页面数据
-                        cb(null, result);
-                    }
-                })
-            }], function (error, rel) {//注意：data是一个数组，前面没有传参[undefined,docs]
-                if (error == null) {
-                    // 当前页码
-                    result.page = page;
-                    // 每页显示数据条数
-                    result.pageSize = pageSize;
-                    // 总页数
-                    result.totalPage = Math.ceil(result.totalSize / result.pageSize);
-                    res.json(result);
-                }
-                //关闭连接
-                client.close();
-            })
-    })
+        })
+    }
 })
 
 // 用户管理页面搜索请求(默认查询昵称数据)
@@ -365,11 +385,129 @@ app.get("/api/userInfo/delete", function (req, res) {
     })
 })
 
-//新增手机数据请求(手机)
-app.get("/api/phone/add", function (req, res) {
+//手机管理页面渲染请求
+app.get("/api/phone.html", function (req, res) {
     //设置响应头来处理跨域问题
     res.set({ "Access-Control-Allow-Origin": "*" });
 
+    //1.获取前端传递过来的参数
+    var page = parseInt(req.query.page) || 1;//初始化默认页码1
+    var pageSize = parseInt(req.query.pageSize) || 2;//初始化默认每页显示5条数据
+    var totalSize = 0;//数据总条数
+    var totalPage = 0;//总页数
+    var result = {};
 
+    // 连接服务器和数据库
+    MongoClient.connect(url, { useNewUrlParser: true }, function (error, client) {
+        if (error) {
+            result.code = -1;//非0表示错误
+            result.message = "连接服务器失败";
+            res.json(result);
+            return;
+        }
+        //连接数据库
+        var db = client.db("MS");
+
+        async.series([
+            function (cb) {
+                //查询MongoDB数据
+                db.collection("phone").find().count(function (error, num) {
+                    if (error) {
+                        result.code = -1;//非0表示错误
+                        result.message = "查询失败";
+                        cb(result.code, result);
+                    } else {
+                        result.code = 0;//非0表示错误
+                        result.message = "查询成功";
+                        result.totalSize = num;//取数据库查询总数据条数
+                        cb(null, result);
+                    }
+                })
+            },
+            //获取当前页码的几条数据
+            function (cb) {
+                //查询MongoDB数据
+                db.collection("phone").find().limit(pageSize).skip(page * pageSize - pageSize).toArray(function (error, docs) {
+                    if (error) {
+                        result.code = -1;//非0表示错误
+                        result.message = "查询数据失败";
+                        cb(result.code, result);
+                    } else {
+                        result.code = 0;//非0表示错误
+                        result.message = "查询数据成功";
+                        result.data = docs //当前页面数据
+                        cb(null, result);
+                    }
+                })
+            }], function (error, rel) {//注意：data是一个数组，前面没有传参[undefined,docs]
+                if (error == null) {
+                    // 当前页码
+                    result.page = page;
+                    // 每页显示数据条数
+                    result.pageSize = pageSize;
+                    // 总页数
+                    result.totalPage = Math.ceil(result.totalSize / result.pageSize);
+                    res.json(result);
+                }
+                //关闭连接
+                client.close();
+            })
+    })
 })
-app.listen(3000)
+
+//新增手机数据请求(手机)
+app.post("/api/phone/upload", upload.single('file'), function (req, res) {
+    //设置响应头来处理跨域问题
+    res.set({ "Access-Control-Allow-Origin": "*" });
+    console.log(req.body);
+    console.log(req.file);
+    //1.获取前端传递过来的参数
+    var productName = req.body.productName;
+    var brandName = req.body.brandName;
+    var officialPrices = parseInt(req.body.officialPrices);
+    var resalePrice = parseInt(req.body.resalePrice);
+    var fileName = "phoneImg/" + new Date().getTime() + "_" + req.file.originalname;
+    // console.log(fileName);
+    var result = "";
+    // 将文件从缓存路径提取到c:/uploads拷贝到public--->images--->phoneImg目录
+    var newFileName = path.resolve(__dirname, "./public/images/", fileName);
+    try {
+        var data = fs.readFileSync(req.file.path);
+        fs.writeFileSync(newFileName, data);
+    } catch (error) {
+        result.code = -1;//文件上传失败
+        result.message = "文件上传失败";
+        res.json(result);
+    }
+    console.log(fileName);
+    //连接服务器
+    MongoClient.connect(url, { useNewUrlParser: true }, function (error, client) {
+        if (error) {
+            result.code = -1;//非0表示错误
+            result.message = "连接服务器失败";
+            res.json(result);
+            return;
+        }
+        // //连接服务器
+        var db = client.db("MS");
+        //插入数据到MongoDB中
+        db.collection("phone").insertOne({
+            "fileName": fileName, "productName": productName, "brandName": brandName, "officialPrices": officialPrices, "resalePrice": resalePrice
+        }, function (error) {
+            if (error) {
+                result.code = -1;//非0表示错误
+                result.message = "新增失败";
+                res.json(result);
+            } else {
+                result.code = 0;//非0表示错误
+                result.message = "新增成功";
+                res.json(result);
+            }
+        })
+        //关闭数据库连接
+        client.close();
+    })
+})
+
+
+app.listen(3000);
