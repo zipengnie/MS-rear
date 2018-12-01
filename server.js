@@ -13,6 +13,7 @@ var multer = require("multer");
 var upload = multer({ dest: 'c:/uploads' })
 // mongodb数据库
 var MongoClient = require("mongodb").MongoClient;
+var ObjectId = require("mongodb").ObjectId;
 var url = "mongodb://127.0.0.1:27017";
 //获取POST请求体body中的数据（查询串）
 app.use(express.json());
@@ -204,7 +205,7 @@ app.get("/api/userInfo.html", function (req, res) {
 
     //1.获取前端传递过来的参数
     var page = parseInt(req.query.page) || 1;//初始化默认页码1
-    var pageSize = parseInt(req.query.pageSize) || 2;//初始化默认每页显示5条数据
+    var pageSize = parseInt(req.query.pageSize) || 5;//初始化默认每页显示5条数据
     var totalSize = 0;//数据总条数
     var totalPage = 1;//总页数
     var result = {};
@@ -342,43 +343,39 @@ app.get("/api/userInfo/delete", function (req, res) {
         async.series([
             //删除用户
             function (cb) {
-                //插入数据到MongoDB中
                 db.collection("user").remove({ userName: name }, function (error) {
                     if (error) {
                         result.code = -1;//非0表示错误
                         result.message = "删除失败";
-                        cb(result.code, result);
+                        res.json(result)
                         return;
                     } else {
                         result.code = 0;//非0表示错误
                         result.message = "删除成功";
-                        cb(null, result);
+                        res.json(result)
                     }
                 })
             },
             //确认是否真正删除成功
             function (cb) {
-                db.collection("user").find({ userName: name }).toArray(function (error, data) {
+                db.collection("user").findOne({ userName: name }, function (error, doc) {
                     if (error) {
                         result.code = -1;//非0表示错误
                         result.message = "查询失败";
-                        cb(result.code, result);
-                    } else if (data) {
+                        res.json(result);
+                        return;
+                    } else if (doc) {
                         result.code = -1;//非0表示错误
                         result.message = "确认删除失败";
-                        cb(result.code, result);
+                        res.json(result)
                     } else {
                         result.code = 0;//非0表示错误
                         result.message = "确认删除成功";
-                        cb(null, result);
+                        res.json(result)
                     }
                 })
             }], function (error, result) {
-                if (error) {
-                    res.json(error);
-                } else {
-                    res.json(result);
-                }
+                res.json(result)
                 //关闭数据库连接
                 client.close();
             })
@@ -509,5 +506,282 @@ app.post("/api/phone/upload", upload.single('file'), function (req, res) {
     })
 })
 
+// 删除手机数据信息
+app.get("/api/phone/delete", function (req, res) {
+    //设置响应头来处理跨域问题
+    res.set({ "Access-Control-Allow-Origin": "*" });
+    // 要查询的关键字
+    var id = req.query.id;
+    var result = "";
+    // 连接服务器
+    MongoClient.connect(url, { useNewUrlParser: true }, function (error, client) {
+        if (error) {
+            result.code = -1;//非0表示错误
+            result.message = "连接服务器失败";
+            res.json(result);
+            return;
+        }
+        //连接数据库
+        var db = client.db("MS")
+
+        //串行无关联async.series
+        async.series([
+            //删除手机数据
+            function (cb) {
+                db.collection("phone").deleteOne({ _id: ObjectId(id) }, function (error) {
+                    if (error) {
+                        result.code = -1;//非0表示错误
+                        result.message = "删除失败";
+                        cb(result.code, result);
+                        return;
+                    } else {
+                        result.code = 0;//非0表示错误
+                        result.message = "删除成功";
+                        cb(null, result);
+                    }
+                })
+            },
+            //确认是否真正删除成功
+            function (cb) {
+                db.collection("phone").find({ _id: ObjectId(id) }).toArray(function (error, data) {
+                    if (error) {
+                        result.code = -1;//非0表示错误
+                        result.message = "查询失败";
+                        cb(result.code, result);
+                    } else if (data.length != 0) {
+                        result.code = -1;//非0表示错误
+                        result.message = "确认删除失败";
+                        cb(result.code, result);
+                    } else {
+                        result.code = 0;//非0表示错误
+                        result.message = "确认删除成功";
+                        cb(null, result);
+                    }
+                })
+            }], function (error, resl) {
+                // res.json(result);
+                // if (error == -1) {
+                //     res.json(error);
+                // } else {
+                res.json(result);
+                // }
+                //关闭数据库连接
+                client.close();
+            })
+    })
+})
+
+//品牌管理页面渲染请求
+app.get("/api/brand.html", function (req, res) {
+    //设置响应头来处理跨域问题
+    res.set({ "Access-Control-Allow-Origin": "*" });
+
+    //1.获取前端传递过来的参数
+    var page = parseInt(req.query.page) || 1;//初始化默认页码1
+    var pageSize = parseInt(req.query.pageSize) || 2;//初始化默认每页显示5条数据
+    var totalSize = 0;//数据总条数
+    var totalPage = 0;//总页数
+    var result = {};
+
+    // 连接服务器和数据库
+    MongoClient.connect(url, { useNewUrlParser: true }, function (error, client) {
+        if (error) {
+            result.code = -1;//非0表示错误
+            result.message = "连接服务器失败";
+            res.json(result);
+            return;
+        }
+        //连接数据库
+        var db = client.db("MS");
+
+        async.series([
+            function (cb) {
+                //查询MongoDB数据
+                db.collection("brand").find().count(function (error, num) {
+                    if (error) {
+                        result.code = -1;//非0表示错误
+                        result.message = "查询失败";
+                        cb(result.code, result);
+                    } else {
+                        result.code = 0;//非0表示错误
+                        result.message = "查询成功";
+                        result.totalSize = num;//取数据库查询总数据条数
+                        cb(null, result);
+                    }
+                })
+            },
+            //获取当前页码的几条数据
+            function (cb) {
+                //查询MongoDB数据
+                db.collection("brand").find().limit(pageSize).skip(page * pageSize - pageSize).toArray(function (error, docs) {
+                    if (error) {
+                        result.code = -1;//非0表示错误
+                        result.message = "查询数据失败";
+                        cb(result.code, result);
+                    } else {
+                        result.code = 0;//非0表示错误
+                        result.message = "查询数据成功";
+                        result.data = docs //当前页面数据
+                        cb(null, result);
+                    }
+                })
+            }], function (error, rel) {//注意：data是一个数组，前面没有传参[undefined,docs]
+                if (error == null) {
+                    // 当前页码
+                    result.page = page;
+                    // 每页显示数据条数
+                    result.pageSize = pageSize;
+                    // 总页数
+                    result.totalPage = Math.ceil(result.totalSize / result.pageSize);
+                    res.json(result);
+                }
+                //关闭连接
+                client.close();
+            })
+    })
+})
+
+//品牌数据新增请求
+app.post("/api/brand/upload", upload.single('file'), function (req, res) {
+    //设置响应头来处理跨域问题
+    res.set({ "Access-Control-Allow-Origin": "*" });
+    console.log(req.body);
+    console.log(req.file);
+
+
+    //1.获取前端传递过来的参数
+    var brandName = req.body.brandName;
+    var fileName = "brandImg/" + new Date().getTime() + "_" + req.file.originalname;
+    var result = "";
+    // 将文件从缓存路径提取到c:/uploads拷贝到public--->images--->brandImg目录
+    var newFileName = path.resolve(__dirname, "./public/images/", fileName);
+    try {
+        var data = fs.readFileSync(req.file.path);
+        fs.writeFileSync(newFileName, data);
+    } catch (error) {
+        result.code = -1;//文件上传失败
+        result.message = "文件上传失败";
+        res.json(result);
+    }
+    console.log(fileName);
+    //连接服务器
+    MongoClient.connect(url, { useNewUrlParser: true }, function (error, client) {
+        if (error) {
+            result.code = -1;//非0表示错误
+            result.message = "连接服务器失败";
+            res.json(result);
+            return;
+        }
+        // //连接服务器
+        var db = client.db("MS");
+        //插入数据到MongoDB中
+        db.collection("brand").insertOne({
+            "fileName": fileName, "brandName": brandName
+        }, function (error) {
+            if (error) {
+                result.code = -1;//非0表示错误
+                result.message = "新增失败";
+                res.json(result);
+            } else {
+                result.code = 0;//非0表示错误
+                result.message = "新增成功";
+                res.json(result);
+            }
+        })
+        //关闭数据库连接
+        client.close();
+    })
+})
+
+//查询品牌信息
+app.get("/api/brand/check", function (req, res) {
+    //设置响应头来处理跨域问题
+    res.set({ "Access-Control-Allow-Origin": "*" });
+    // 要查询的关键字
+    var id = new ObjectId(req.query.id);
+    // console.log(req.query);
+    var result = "";
+    // 连接服务器
+    MongoClient.connect(url, { useNewUrlParser: true }, function (error, client) {
+        if (error) {
+            result.code = -1;//非0表示错误
+            result.message = "连接服务器失败";
+            res.json(result);
+            return;
+        }
+        //连接数据库
+        var db = client.db("MS")
+
+        //查询品牌数据
+        db.collection("brand").find({ "_id": id }).toArray(function (error, doc) {
+            if (error) {
+                result.code = -1;//非0表示错误
+                result.message = "删除失败";
+                // res.json(result);
+                // console.log(error);
+            } else {
+                result.code = 0;//非0表示错误
+                result.message = "删除成功";
+                result.data = doc;
+                res.json(result);
+                console.log(result.data);
+            }
+            //关闭数据库连接
+            client.close();
+        })
+    })
+})
+
+
+//品牌数据修改请求
+// app.post("/api/brand/update", upload.single('file'), function (req, res) {
+//     //设置响应头来处理跨域问题
+//     res.set({ "Access-Control-Allow-Origin": "*" });
+//     console.log(req.body);
+//     console.log(req.file);
+
+
+// //1.获取前端传递过来的参数
+// var brandName = req.body.brandName;
+// var fileName = "brandImg/" + new Date().getTime() + "_" + req.file.originalname;
+// var result = "";
+// // 将文件从缓存路径提取到c:/uploads拷贝到public--->images--->brandImg目录
+// var newFileName = path.resolve(__dirname, "./public/images/", fileName);
+// try {
+//     var data = fs.readFileSync(req.file.path);
+//     fs.writeFileSync(newFileName, data);
+// } catch (error) {
+//     result.code = -1;//文件上传失败
+//     result.message = "文件上传失败";
+//     res.json(result);
+// }
+// console.log(fileName);
+// //连接服务器
+// MongoClient.connect(url, { useNewUrlParser: true }, function (error, client) {
+//     if (error) {
+//         result.code = -1;//非0表示错误
+//         result.message = "连接服务器失败";
+//         res.json(result);
+//         return;
+//     }
+//     // //连接服务器
+//     var db = client.db("MS");
+//     //插入数据到MongoDB中
+//     db.collection("brand").insertOne({
+//         "fileName": fileName, "brandName": brandName
+//     }, function (error) {
+//         if (error) {
+//             result.code = -1;//非0表示错误
+//             result.message = "新增失败";
+//             res.json(result);
+//         } else {
+//             result.code = 0;//非0表示错误
+//             result.message = "新增成功";
+//             res.json(result);
+//         }
+//     })
+//     //关闭数据库连接
+//     client.close();
+// })
 
 app.listen(3000);
