@@ -698,7 +698,8 @@ app.get("/api/brand/check", function (req, res) {
     //设置响应头来处理跨域问题
     res.set({ "Access-Control-Allow-Origin": "*" });
     // 要查询的关键字
-    var id = new ObjectId(req.query.id);
+    var id = ObjectId(req.query.id);
+    console.log(id);
     // console.log(req.query);
     var result = "";
     // 连接服务器
@@ -717,14 +718,11 @@ app.get("/api/brand/check", function (req, res) {
             if (error) {
                 result.code = -1;//非0表示错误
                 result.message = "删除失败";
-                // res.json(result);
-                // console.log(error);
+                res.json(result);
             } else {
                 result.code = 0;//非0表示错误
                 result.message = "删除成功";
                 result.data = doc;
-                res.json(result);
-                console.log(result.data);
             }
             //关闭数据库连接
             client.close();
